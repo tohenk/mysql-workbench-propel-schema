@@ -1,10 +1,13 @@
 --
--- SymfonyPropelSchema 1.05
+-- SymfonyPropelSchema 1.06
 --
 -- Mysql Workbench plugin for processing schema into symfony's yml format.
 --
 -- Copyright Jason Rowe <jason.rowe@milestoneip.com> / MilestoneIP 2008 - Milestone IP LTD <www.milestoneip.com>
--- Copyright (c) 2010, Toha <tohenk@yahoo.com>
+-- Copyright (c) 2010-2013 Toha <tohenk@yahoo.com>
+--
+-- Version 1.06 -- April 28, 2013
+-- * Map TINYINT(1) as BOOLEAN
 --
 -- Version 1.05 -- Dec 17, 2010
 -- * Plugin renamed from SymfonyPropelSchemaExport to SymfonyPropelSchema
@@ -47,7 +50,7 @@ function getModuleInfo()
 	return {
 		name= "SymfonyPropelSchema",
 		author= "MySQL AB.",
-		version= "1.05",
+		version= "1.06",
 		implements= "PluginInterface",
 		functions= {
 			"getPluginInfo:l<o@app.Plugin>:",
@@ -73,7 +76,7 @@ function getPluginInfo()
 
 	plugin= grtV.newObj("app.Plugin", {
 		name= "wb.SymfonyPropelSchema.exportToClipboard",
-		caption= "Symfony Propel Schema > Export To Clipboard (New Schema)",
+		caption= "Symfony Propel Schema > To Clipboard (New Schema)",
 		moduleName= "SymfonyPropelSchema",
 		pluginType= "normal",
 		moduleFunctionName= "exportToClipboard",
@@ -90,7 +93,7 @@ function getPluginInfo()
 
 	plugin= grtV.newObj("app.Plugin", {
 		name= "wb.SymfonyPropelSchema.exportToFile",
-		caption= "Symfony Propel Schema > Export To File (New Schema)",
+		caption= "Symfony Propel Schema > To File (New Schema)",
 		moduleName= "SymfonyPropelSchema",
 		pluginType= "normal",
 		moduleFunctionName= "exportToFile",
@@ -205,6 +208,86 @@ function sfTableColumn:printYml()
 	return "{ " .. concat(defs) .. " }"
 end
 
+function sfTableColumn:convertDataType(column)
+	if (column.simpleType ~= nil) then
+		self:asPropelDataType(column.simpleType.name, column, true)
+	else
+		if (column.userType ~= nil) then
+			if (false == self:asPropelDataType(column.userType.name, column, false)) then
+				self:asPropelDataType(column.userType.actualType.name, column, true)
+			end
+		end
+	end
+end
+
+function sfTableColumn:asPropelDataType(dataType, column, force)
+	if (dataType == nil) then
+		return false
+	end
+	self.type = nil
+	if (dataType == "TINYINT" and column.precision == 1) then
+		self.type = "BOOLEAN"
+	end
+	if (dataType == "INT" or dataType == "MEDIUMINT") then
+		self.type = "INTEGER"
+	end
+	if (dataType == "TINYTEXT") then
+		self.type = "VARCHAR"
+		self.length = 255
+	end
+	if (dataType == "TEXT") then
+		self.type = "LONGVARCHAR"
+		self.length = 65535
+	end
+	if (dataType == "MEDIUMTEXT") then
+		self.type = "CLOB"
+		self.length = 16777215
+	end
+	if (dataType == "LONGTEXT") then
+		self.type = "CLOB"
+		self.length = 4294967295
+	end
+	if (dataType == "TINYBLOB") then
+		self.type = "BINARY"
+		self.length = 255
+	end
+	if (dataType == "BLOB") then
+		self.type = "BINARY"
+		self.length = 65535
+	end
+	if (dataType == "MEDIUMBLOB") then
+		self.type = "VARBINARY"
+		self.length = 16777215
+	end
+	if (dataType == "LONGBLOB") then
+		self.type = "LONGVARBINARY"
+		self.length = 4294967295
+	end
+	if (dataType == "DATETIME") then
+		self.type = "TIMESTAMP"
+	end
+	if (dataType == "YEAR") then
+		self.type = "SMALLINT"
+	end
+	if (dataType == "BOOL") then
+		self.type = "BOOLEAN"
+	end
+	if (dataType == "DECIMAL") then
+		self.type = "DECIMAL"
+		self.length = column.precision
+		self.length2 = column.scale
+	end
+	if (self.type == nil) then
+		if (false == force) then
+			return false
+		else
+			self.type = dataType
+		end
+	end
+
+	return true
+end
+
 --
 -- implementation
 --
@@ -295,10 +378,7 @@ function convertSchemaIntoSymfonyYml(cat)
 		local tbls = listTables(schema.tables, ordered)
 
 		-- multiple tables
-		--for j = 1, grtV.getn(schema.tables) do
 		for j, tbl in pairs(tbls) do
-
-			--tbl = schema.tables[j]
 
 			table.insert(yml, yamlValue(addTab(1) .. camelize(tbl.name)))
 			table.insert(yml, yamlValue(addTab(2) .. "tableName", tbl.name, maxColumnLength))
@@ -311,39 +391,15 @@ function convertSchemaIntoSymfonyYml(cat)
 				currentColumn = nil
 				currentColumn = sfTableColumn:new()
 				currentColumn.name = column.name
-				if (column.simpleType ~= nil) then
-					currentColumn.type = wbSimpleType2PropelDatatype(column.simpleType)
-				else
-					currentColumn.type = wbUserType2PropelDatatype(column.userType)
-				end
+				currentColumn:convertDataType(column)
 
 				-- size
 				if (column.length ~= nil) then
 					if (column.length == -1) then
-					currentColumn.length = 0
+						currentColumn.length = 0
 					else
-					currentColumn.length = column.length
+						currentColumn.length = column.length
 					end
-				end
-
-				local columnType = nil;
-				if (column.simpleType ~= nil) then
-					columnType = column.simpleType
-				else
-					columnType = column.userType.actualType
-				end
-
-				if (currentColumn.type == "CLOB" or currentColumn.type == "VARCHAR") then
-					if (columnType.name == "TINYTEXT") then
-						currentColumn.length = 255
-					elseif (columnType.name == "MEDIUMTEXT") then
-						currentColumn.length = 16777215
-					elseif (columnType.name == "LONGTEXT") then
-						currentColumn.length = 4294967295
-					end
-				elseif (currentColumn.type == "DECIMAL") then
-					currentColumn.length = column.precision
-					currentColumn.length2 = column.scale
 				end
 
 				-- required
@@ -470,10 +526,6 @@ function convertSchemaIntoSymfonyYml(cat)
 		end
 	end
 	s = concat(yml, newline)
-	--print("SCHEMA:\n")
-	--print(string.rep("-", 80) .. "\n")
-	--print(s .. "\n")
-	--print(string.rep("-", 80) .. "\n")
 
 	return s
 end
@@ -672,95 +724,8 @@ function showMessage(msg, caption)
 	end
 	f = "label;" .. msg
 	v = grtV.newDict()
+
 	return Forms:show_simple_form(caption, f, v)
-end
-
---
--- Convert workbench simple types to propel types
---
-function wbSimpleType2PropelDatatype(simpleType)
-	-- local propelType="**UNKNOWN** ("..simpleType.name..")"
-	-- We assume that the simpleType corresponds to the propel type by default
-	-- This is correct 95% of the time
-	if (simpleType~=nil) then
-
-		local propelType=simpleType.name
-
-		-- convert INT to INTEGER
-		if (simpleType.name=="INT" or simpleType.name=="MEDIUMINT") then
-			propelType = "INTEGER"
-		end
-
-		-- convert text types to CLOBs
-		if (simpleType.name=="TINYTEXT") then
-			propelType = "VARCHAR"
-		end
-		if (simpleType.name=="TEXT") then
-			propelType = "LONGVARCHAR"
-		end
-		if (simpleType.name=="MEDIUMTEXT") then
-			propelType = "CLOB"
-		end
-		if (simpleType.name=="LONGTEXT") then
-			propelType = "CLOB"
-		end
-		if (simpleType.name=="LONGBLOB") then
-			propelType = "LONGVARBINARY"
-		end
-		if (simpleType.name=="MEDIUMBLOB") then
-			propelType = "VARBINARY"
-		end
-		if (simpleType.name=="BLOB") then
-			propelType = "VARBINARY"
-		end
-
-		-- convert DATETIME TO TIMESTAMP (this will be converted back to DATETIME by Propel 1.3)
-		if (simpleType.name=="DATETIME") then
-			propelType = "TIMESTAMP"
-		end
-
-		-- propel doesn't have YEAR data type
-		if (simpleType.name=="YEAR") then
-			propelType = "SMALLINT"
-		end
-
-		return propelType
-	else
-		return "EMPTY SIMPLETYPE"
-	end
-end
-
---
--- Tries to convert workbench user types to propel types
---
-function wbUserType2PropelDatatype(userType)
-	-- local propelType="**UNKNOWN** ("..simpleType.name..")"
-	-- We assume that the simpleType corresponds to the propel type by default
-	-- This is correct 95% of the time
-	if (userType~=nil) then
-
-		local propelType=""
-
-		-- convert MySQL Workbench defined user-types to Propel-Types
-		if (userType.name=="BOOL") then
-			propelType = "BOOLEAN"
-		end
-		if (userType.name=="BOOLEAN") then
-			propelType = "BOOLEAN"
-		end
-
-		-- if you have custom mappings you could add cases for them here:
-
-
-		-- Check if we found a conversion, if not use the simple-type converter with the actual definition of the user-type
-		if (propelType=="") then
-			propelType=wbSimpleType2PropelDatatype(userType.actualType)
-		end
-
-		return propelType
-	else
-		return "EMPTY USERTYPE"
-	end
 end
 
 -- EOF --
